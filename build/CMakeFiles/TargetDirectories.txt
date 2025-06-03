@@ -1,0 +1,3 @@
+/home/xzd/monoWeb/build/CMakeFiles/server.dir
+/home/xzd/monoWeb/build/CMakeFiles/edit_cache.dir
+/home/xzd/monoWeb/build/CMakeFiles/rebuild_cache.dir
