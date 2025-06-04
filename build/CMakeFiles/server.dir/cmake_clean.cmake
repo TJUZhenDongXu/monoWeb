@@ -1,6 +1,8 @@
 file(REMOVE_RECURSE
   "../server"
   "../server.pdb"
+  "CMakeFiles/server.dir/epoller/epoller.cpp.o"
+  "CMakeFiles/server.dir/epoller/epoller.cpp.o.d"
   "CMakeFiles/server.dir/http/http_conn.cpp.o"
   "CMakeFiles/server.dir/http/http_conn.cpp.o.d"
   "CMakeFiles/server.dir/main.cpp.o"

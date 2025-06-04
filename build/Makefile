@@ -129,6 +129,30 @@ server/fast:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/server.dir/build.make CMakeFiles/server.dir/build
 .PHONY : server/fast
 
+epoller/epoller.o: epoller/epoller.cpp.o
+.PHONY : epoller/epoller.o
+
+# target to build an object file
+epoller/epoller.cpp.o:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/server.dir/build.make CMakeFiles/server.dir/epoller/epoller.cpp.o
+.PHONY : epoller/epoller.cpp.o
+
+epoller/epoller.i: epoller/epoller.cpp.i
+.PHONY : epoller/epoller.i
+
+# target to preprocess a source file
+epoller/epoller.cpp.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/server.dir/build.make CMakeFiles/server.dir/epoller/epoller.cpp.i
+.PHONY : epoller/epoller.cpp.i
+
+epoller/epoller.s: epoller/epoller.cpp.s
+.PHONY : epoller/epoller.s
+
+# target to generate assembly for a file
+epoller/epoller.cpp.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/server.dir/build.make CMakeFiles/server.dir/epoller/epoller.cpp.s
+.PHONY : epoller/epoller.cpp.s
+
 http/http_conn.o: http/http_conn.cpp.o
 .PHONY : http/http_conn.o
 
@@ -186,6 +210,9 @@ help:
 	@echo "... edit_cache"
 	@echo "... rebuild_cache"
 	@echo "... server"
+	@echo "... epoller/epoller.o"
+	@echo "... epoller/epoller.i"
+	@echo "... epoller/epoller.s"
 	@echo "... http/http_conn.o"
 	@echo "... http/http_conn.i"
 	@echo "... http/http_conn.s"
