@@ -1,4 +1,4 @@
-// 文件名：main.cpp
+// 文件：main.cpp
 #include <iostream>
 #include <cstdio>
 #include <cstdlib>
@@ -16,7 +16,6 @@
 #include "epoller/epoller.h"
 #include "http/http_conn.h"
 
-// 最大并发监听事件数
 static const int MAX_EVENTS = 1024;
 
 /**
@@ -69,7 +68,7 @@ int main(int argc, char* argv[]) {
 
     // 创建 Epoller 实例
     Epoller epoller(MAX_EVENTS);
-    // 注册 listen_fd，监听可读事件，使用边缘触发（EPOLLET）
+    // 注册 listen_fd，监听可读事件，使用边缘触发（EPOLLIN | EPOLLET）
     epoller.addFd(listen_fd, EPOLLIN | EPOLLET);
 
     // 存储 fd->HttpConn* 的映射，方便事件到来时找到对应对象
@@ -81,16 +80,19 @@ int main(int argc, char* argv[]) {
     while (true) {
         int eventCnt = epoller.wait(-1);  // 阻塞等待
         if (eventCnt < 0) {
-            // 忽略 EINTR
-            continue;
+            // 如果是 EINTR，可以忽略；否则打印错误
+            if (errno == EINTR) continue;
+            perror("epoll_wait");
+            break;
         }
+
         auto* events = epoller.getEvents();
         for (int i = 0; i < eventCnt; ++i) {
-            int fd = events[i].data.fd;
+            int fd  = events[i].data.fd;
             uint32_t ev = events[i].events;
 
             if (fd == listen_fd) {
-                // 监听套接字有事件 ⇒ 新连接到来
+                // ——— accept 新连接 ———
                 while (true) {
                     sockaddr_in client_addr;
                     socklen_t client_len = sizeof(client_addr);
@@ -99,7 +101,7 @@ int main(int argc, char* argv[]) {
                                            &client_len);
                     if (client_fd < 0) {
                         if (errno == EAGAIN || errno == EWOULDBLOCK) {
-                            // 已经没有新的连接，跳出 accept 循环
+                            // 已经没有新的连接了，跳出 accept 循环
                             break;
                         } else {
                             perror("accept");
@@ -107,16 +109,17 @@ int main(int argc, char* argv[]) {
                         }
                     }
 
-                    // 将新连接置为非阻塞
+                    // 将新连接设为非阻塞
                     if (setNonBlocking(client_fd) < 0) {
                         perror("setNonBlocking");
                         close(client_fd);
                         continue;
                     }
-                    // 将 client_fd 注册到 epoll，监听可读、挂断事件，使用边缘触发
-                    epoller.addFd(client_fd, EPOLLIN | EPOLLET | EPOLLRDHUP | EPOLLHUP);
 
-                    // 为每个连接创建 HttpConn 并保存到 map
+                    // 新连接注册到 epoll，监听可读 + 掉线 (EPOLLIN | EPOLLET | EPOLLRDHUP)
+                    epoller.addFd(client_fd, EPOLLIN | EPOLLET | EPOLLRDHUP);
+
+                    // 为每个连接创建 HttpConn 并保存到 conn_map
                     HttpConn* conn = new HttpConn();
                     conn->Init(client_fd, client_addr);
                     conn_map[client_fd] = conn;
@@ -127,39 +130,60 @@ int main(int argc, char* argv[]) {
                               << ", fd=" << client_fd << std::endl;
                 }
             } else {
-                // 已建立连接上的 I/O 事件
-                // 先检查是否是对端挂断或错误
+                // ——— 已建立连接上的 I/O 事件 ———
+
+                // 1) 首先检测是否挂断或错误
                 if (ev & (EPOLLRDHUP | EPOLLHUP | EPOLLERR)) {
-                    // 对端断开或错误，清理
+                    // 对端断开或出错，清理
+                    epoller.delFd(fd);
                     auto it = conn_map.find(fd);
                     if (it != conn_map.end()) {
                         it->second->Close();
                         delete it->second;
                         conn_map.erase(it);
                     }
-                    epoller.delFd(fd);
                     continue;
                 }
-                // 如果是可读事件
+
+                // 2) 如果可读事件到来，就调用 OnRead()
                 if (ev & EPOLLIN) {
                     auto it = conn_map.find(fd);
-                    if (it != conn_map.end()) {
-                        HttpConn* conn = it->second;
-                        // 目前仍然使用同步方式：Process 包含 Read/Parse/Write，并在末尾 Close
-                        epoller.delFd(fd);
-                        conn->Process();
+                    if (it == conn_map.end()) continue;
+                    HttpConn* conn = it->second;
 
-                        // 处理完毕后，关闭并释放掉连接
-                        delete conn;
-                        conn_map.erase(it);
+                    bool needWrite = conn->OnRead();
+                    if (needWrite) {
+                        // 说明 OnRead() 已经 parse 完请求并生成好响应，
+                        // 需要把该 fd 从“只读”切换到“可写”
+                        epoller.modFd(fd, EPOLLOUT | EPOLLET | EPOLLRDHUP);
                     }
                 }
-                // 如果未来要支持可写事件（EPOLLOUT），可以在这里加上判断并调用 conn->OnWrite()
+
+                // 3) 如果可写事件到来，就调用 OnWrite()
+                if (ev & EPOLLOUT) {
+                    auto it = conn_map.find(fd);
+                    if (it == conn_map.end()) continue;
+                    HttpConn* conn = it->second;
+
+                    bool closeConn = conn->OnWrite();
+                    if (closeConn) {
+                        // 响应完全发送，关闭并删除
+                        epoller.delFd(fd);
+                        conn->Close();
+                        delete conn;
+                        conn_map.erase(it);
+                    } else {
+                        // 说明要保持长连接或是 send 缓冲满暂时没发完
+                        // 如果是 keep-alive 模式，OnWrite() 已经帮忙重置状态
+                        // 将它改回监听“可读”
+                        epoller.modFd(fd, EPOLLIN | EPOLLET | EPOLLRDHUP);
+                    }
+                }
             }
         }
     }
 
-    // 虽然一般不会到这里
+    // 清理——虽然通常不会执行到这里
     close(listen_fd);
     return 0;
 }

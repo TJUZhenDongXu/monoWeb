@@ -4,7 +4,7 @@
 # compile CXX with /usr/bin/c++
 CXX_DEFINES = 
 
-CXX_INCLUDES = -I/home/xzd/monoWeb -I/home/xzd/monoWeb/http/http.h -I/home/xzd/monoWeb/epoller/epoller.h
+CXX_INCLUDES = -I/home/xzd/monoWeb -I/home/xzd/monoWeb/http -I/home/xzd/monoWeb/epoller
 
 CXX_FLAGS = -std=c++17
 

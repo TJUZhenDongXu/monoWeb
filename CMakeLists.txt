@@ -12,8 +12,8 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 # 可以在这里分别把它们添加到 include 路径中
 include_directories(
     ${CMAKE_SOURCE_DIR}        # 根目录（用于包含 main.cpp、config.h 等）
-    ${CMAKE_SOURCE_DIR}/http/http.h   # 包含 http_conn.h
-    ${CMAKE_SOURCE_DIR}/epoller/epoller.h
+    ${CMAKE_SOURCE_DIR}/http/   # 包含 http_conn.h
+    ${CMAKE_SOURCE_DIR}/epoller/
     # 如果后续有其它子模块，也可以按需添加：
     # ${CMAKE_SOURCE_DIR}/threadpool
     # ${CMAKE_SOURCE_DIR}/lock

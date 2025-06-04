@@ -15,17 +15,7 @@
 #include <unordered_map>
 #include <vector>
 
-/**
- * HttpConn:
- *   一个最简单的 GET-only 静态文件服务器连接处理类。
- *   使用流程：
- *     1. 在 accept() 后调用 Init(sockfd, 客户端地址)，并设置 sockfd 为非阻塞；
- *     2. Process() 会阻塞读取一次请求，解析请求行，仅支持 GET；
- *     3. 根据 URL 读取静态文件，打包 HTTP 响应并发送，最后关闭连接。
- *
- *  如果后续你要扩展成 epoll + 读写分离模型，可以把 Read/Write 分离，
- *  但目前仅做最简单的“同步阻塞”实现。
- */
+
 class HttpConn {
 public:
     // 单次 Read 缓冲区大小
@@ -40,8 +30,21 @@ public:
     /// 立即关闭连接
     void Close();
 
-    /// “业务入口”：调用 Read()、ParseRequest()、WriteResponse()，并在末尾 Close()
-    void Process();
+    /**
+     * @brief 当epoll通知这个fd可读的时候，调用OnRead
+     * 
+     * @return true 表示完整读到请求，需要切换到写事件
+     * @return false 还没读完或者出错，需要继续等待可读或者关闭
+     */
+    bool OnRead();
+
+    /**
+     * @brief epoll通知这个fd可写的是偶，调用OnWrite
+     * 
+     * @return true 响应全部发送完毕，可以安全地关闭连接
+     * @return false 
+     */
+    bool OnWrite();
 
     // 仅支持 GET, POST, HEAD；但我们这里只真正处理 GET，其他返回 400/405
     enum class HttpMethod {
@@ -51,16 +54,19 @@ public:
         UNKNOWN
     };
 
+    //解析状态机
+    enum class ParseState{
+        REQUEST_LINE,
+        HEADERS,
+        BODY,
+        FINISH
+    };
+
 private:
-    /// 循环从 sockfd_ 读取数据到 read_buf_，直到返回 EAGAIN（非阻塞）
-    bool Read();
+    bool parseRequestLine(const std::string &line);
+    bool parseHeaders(const std::string& header_line);
 
-    /// 只解析第一行：“<METHOD> <URL> <VERSION>\r\n”
-    bool ParseRequest();
-
-    /// 如果解析成功，根据 URL 在本地读取静态文件，拼装 HTTP 响应并 send
-    void WriteResponse();
-
+    void prepareResponse();
     /// 根据文件后缀返回对应的 MIME
     static std::string GetMimeType(const std::string& path);
 
@@ -83,9 +89,18 @@ private:
     std::string                  version_;             // HTTP/1.1
     bool                         request_parsed_ok_{false};
 
+    //存储解析出来的http header
+    std::unordered_map<std::string, std::string> headers_;
+    //状态参数
+    ParseState parse_state_{ParseState::REQUEST_LINE};
     // ———— 写部分 ————
     std::vector<char>            file_buf_;            // 已读取完的文件二进制内容
+    size_t file_idx_{0};
+
     std::string                  write_buf_;           // 拼装好的 HTTP 响应头
+    size_t write_idx_{0};                              //发了多少字节
+
+    bool keep_alive_{false};
 };
 
 #endif // HTTP_CONN_H
